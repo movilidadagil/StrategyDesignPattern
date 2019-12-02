@@ -1,0 +1,152 @@
+Strategy Pattern
+Bu yazımızda Strategy pattern ı anlayacağız.
+Strategy pattern ın amacı
+Open/closed principle da nasıl bir yerde olduğu
+ne zaman kullanmamız gerektiği
+konularını işleyeceğiz.
+
+Strategy pattern sınıf içinde yada dışındaki  fonksiyonalitenin kodda değişiklik yapmadan
+ kolayca başka sınıflarda replike edilmesine izin verir.
+ Bu da iyi tanımlanmış bazı fonksiyonelitelerinin enkapsüle edilmesi ve izole edilmesi ile yapılır.
+
+Warehouse örneğimizdeki generateDailyRevenueReport metodunu göz önüne alalım, burada nonpending siparişlerin
+listesini günlük olarak çekebileceğimiz bir fonksiyonelite var. Bir müşterimiz için bu yeterli iken, başka bir
+müşterimizin pending sparişleri de dahil etmek istediğini düşünelim.
+
+private Report generateDailyRevenueReport() {
+        Report report = new Report();
+        report.addLabel("Date");
+        report.addLabel("Total revenue");
+        orders.stream()
+            .filter(o -> !o.isPending())
+            .sorted()
+            .collect(groupingBy(Order::getDate, LinkedHashMap::new, summingInt(Order::getTotalPrice)))
+            .forEach((date, totalRevenue) -> report.addRecord(Arrays.asList(date, totalRevenue)));
+        return report;
+    }
+
+Bu aynı metodu kopyalayıp fonksiyonelitesinde birkaç değişiklik yapılarak yada Warehouse sınıfını kopyalayıp
+fonksiyonelitesini değiştirerek bir çözüm sağlayabiliriz.
+
+yani bunun gibi
+private Report generateDailyRevenueReport2() throws WarehouseException {
+        Report report = new Report();
+        report.addLabel("Date");
+        report.addLabel("Total products");
+        report.addLabel("Total revenue");
+        orderDao.getOrders()
+            .stream()
+            .sorted()
+            .collect(groupingBy(Order::getDate, LinkedHashMap::new, toList()))
+            .forEach((date, orders) -> report.addRecord(Arrays.asList(
+                date,
+                orders
+                    .stream()
+                    .sorted()
+                    .map(Order::getQuantities)
+                    .map(Map::values)
+                    .flatMap(Collection::stream)
+                    .mapToInt(Integer::intValue)
+                    .sum(),
+                orders
+                    .stream()
+                    .sorted()
+                    .mapToInt(Order::getTotalPrice)
+                    .sum())));
+        return report;
+    }
+
+
+Bu çalışır fakat maintanence iki katına çıkar. Diyelim ki bir çok müşteriniz sizden farklı işler istedi her biri için
+farklı metot yaparsanız yani hardcoded değişim yaparsanız ne olacak?
+
+Burada farklı müşterilerinize göre farklı işleri yapan metotların çağırılmasına karar vererek de yapabilirsiniz.
+Mesala generateReport metodunuz aşağıdakine dönüşür:
+
+ public Report generateReport(Report.Type type) throws WarehouseException {
+        if (type == Report.Type.DAILY_REVENUE) {
+            if (Main.CLIENT_ID == 1) {
+                return generateDailyRevenueReport();
+            } else if (Main.CLIENT_ID == 2) {
+                return generateDailyRevenueReport2();
+            } else {
+                throw new IllegalStateException("Unknown client ID: " + Main.CLIENT_ID);
+            }
+        }
+        throw new UnsupportedOperationException(String.format("Report type: %s not yet implemented.", type));
+    }
+Main metodundan da bu şekilde çağırırız:
+ public static final int CLIENT_ID = 2;
+
+
+Bu da hala yukarıda bahsettiğim problemlerinizi çözmez.
+
+Aşağıdaki şekilde client ımızı run time da belirleyerek işlem yapsak ne olur?
+        checkClientId(arguments);
+        parseClientId(arguments.get(0));
+
+Run time da client id yi kullanıcıdan beklemek 100 lerce client olduğunda bunları static olarak ekleyip onlara göre işlem yapan
+fonksiyonlar için şu geldiğinde şu yap demekten daha iyidir.
+
+Evet bundan daha iyisi ise bu generate report u interface e taşıyarak Warehouse sınıfının bu generate report işinin yapıldığını
+bilmesini ama nasıl yapıldığını bilmemesini sağlamak.
+yani
+
+ReportGeneration.java
+public interface ReportGeneration {
+
+    Report generateReport(Report.Type type) throws WarehouseException;
+}
+
+Warehouse.java
+ public Report generateReport(Report.Type type) throws WarehouseException {
+        return reportGeneration.generateReport(type);
+    }
+
+Warehouse dan fonksiyoneliteyi interface e taşıdık ve iki ayrı sınıf oluşturduk bunlardan bi tanesi
+DefaultReportGeneration ve diğeri AlternativeReportGeneration
+Bu sınfılar ReportGeneration interface ini implement ederler ve Warehouse daki generateReport metotlarını
+barındırırlar.
+Bu şekilde ayırdıktan sonra Main metodumuzda bazı değişiklikler yaptık
+ ReportGeneration reportGeneration;
+        if (clientId == 1) {
+            reportGeneration = new DefaultReportGeneration(orderDao);
+        } else if (clientId == 2) {
+            reportGeneration = new AlternativeReportGeneration(orderDao);
+        } else {
+            throw new IllegalStateException("Unknown client ID: " + clientId);
+        }
+
+hatırlarsanız bu if else Warehouse sınıfında idi artık cient tarafında.
+
+Strategy design pattern da göze çarpan en önemli konu requirement ların değiştiği code base imizde bir raporlama
+var iken client a göre raporlama fonksiyonelitesini değiştirdik  ve diğer konu ise implementasyonu yaparken
+bottom up approach kullandık yani önce metot yazdık metot ile fonksiyonelite işledik sonra bunu sınıflar haline
+getirdik.
+
+Açıklamaya devam edelim diyelim ki client ımız raporlarını mail ile almak istedi.
+Bunu isteyen client lar varsa ileri de azure dan alalım, sftp den alalım, ftp den rapor extract edelim
+diyen client lar olabilir buna göre design düşünmeliyiz.
+Böylece report export ettiğimiz metodun içerisinde bazı değişikliklere ihtiyacımız olur, peki orada sürekli yeni
+deliver fonksiyonelitesi için değişiklik mi yapacağız yine maintancence zorlaşır kod okuma zorlaşır dememe gerek yok
+öyle ise abstract bir deliver sınıfı oluşturalım ve bu sınıf deliver metodu içersin. Bu metodumuz abstract olmasın.
+Çünkü bunu alt sınıflarda farklı implement etmeyeceğiz abstract sınıfımızda mail deliver edecek şekilde implement edeceğiz.
+Peki burada inheritance ın gücünü kullandık, composition da kullanabilirdik, composition kullanırsak nasıl olur bakalım.
+
+doReportAction metodumuz Cli sınıfı içerisinde idi ve deliver metodunu çağırmakta idi, inheritance kullandığımızda
+şimdi ise Cli sınıfımız hiç bi sınıfı extend etmez ve onun yerine doReportAction metodumuzda
+ ReportDelivery reportDelivery = null;
+ reportDelivery.deliver();
+
+ Bu şekilde composition kullanarak çağırılır.
+ Peki bunun diğerinden iyi olmasının sebebi nedir? şu anda zaten fail eder çünkü reportDelivery nesnemiz null, fakat farklı
+ implementasyonlarını gerçekleştirebileceğimiz için ileride ki delivery fonksiyonelitesi için kullanışlıdır.
+Bu yüzden buradaki gibi nesneyi örneklemeyeceğiz onun yerine constructor da örnekleyeceğiz ve metod içerisinden
+çağıracağız yani
+  reportDelivery.deliver();
+     public Cli(List<String> args, Warehouse warehouse, ReportDelivery reportDelivery) {
+          this.args = args;
+          this.warehouse = warehouse;
+          this.reportDelivery = reportDelivery;
+      }
+
