@@ -150,3 +150,12 @@ Bu yüzden buradaki gibi nesneyi örneklemeyeceğiz onun yerine constructor da �
           this.reportDelivery = reportDelivery;
       }
 
+Peki soracaksınız reportDelivery contructor da örnekleniyor da nereden çağırılıyr
+Main metodu içerisinde şu şekilde çağırıyorsunuz
+
+
+        ReportDelivery reportDelivery = null; 
+
+        new Web(arguments, warehouse, reportDelivery).run();
+        new Cli(arguments, warehouse, reportDelivery).run();
+
